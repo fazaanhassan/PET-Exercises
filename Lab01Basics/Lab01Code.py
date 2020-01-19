@@ -83,17 +83,17 @@ def is_point_on_curve(a, b, p, x, y):
     assert isinstance(b, Bn)
     assert isinstance(p, Bn) and p > 0
     assert (isinstance(x, Bn) and isinstance(y, Bn)) \
-           or (x == None and y == None)
+           or (x is None and y is None)
 
-    if x == None and y == None:
+    if x is None and y is None:
         return True
 
     lhs = (y * y) % p
-    rhs = (x*x*x + a*x + b) % p
-    on_curve = (lhs == rhs)
-
-    return on_curve
-
+    rhs = (x**3 + a*x + b) % p
+    if (rhs == lhs):
+        return True
+    else:
+        return False
 
 def point_add(a, b, p, x0, y0, x1, y1):
     """Define the "addition" operation for 2 EC Points.
@@ -108,9 +108,33 @@ def point_add(a, b, p, x0, y0, x1, y1):
     """
 
     # ADD YOUR CODE BELOW
-    xr, yr = None, None
+    if not is_point_on_curve(a, b, p, x0, y0) or not is_point_on_curve(a, b, p, x1, y1):
+        # Check if point any of the points are not on the curve
+        raise Exception("Both points must be on the curve")
+    elif (x0 is None and y0 is None):
+        # Neutral elements are those when (x0, y0) + (None, None) == (x0, y0) and vice versa
+        return x1, y1
+    elif (x1 is None and y1 is None):
+        return x0, y0
+    elif ((x0, y0) == (x1, y1)):
+        # Check if the points are equal ONLY IF they are not None. As this causes and error when
+        # using == for None
+        raise Exception("EC Points must not be equal") 
+    elif ((x0 % p == x1 % p) or (y0 % p == y1 % p)):
+        return None, None
+    else:
+        if x0 is None or x1 is None or y0 is None or y1 is None:
+            # Use normal operations if input values have None 
+            lam = ((y1 - y0) * ((x1 - x0).mod_inverse(p))) % p
+            xr = (pow(lam, 2) - x1 - x0) % p
+            yr = (lam * ((x0 - xr)) - y0) % p
+        else:
+            # If none of the coordaintes are None we can use Bn Operations
+            lam = (y1.int_sub(y0)).int_mul((x1-x0).mod_inverse(p)) % p
+            xr = (pow(lam, 2).int_sub(x1)).mod_sub(x0, p)
+            yr = (lam.int_mul(x0.int_sub(xr))).mod_sub(y0, p)
+        return xr, yr
     
-    return (xr, yr)
 
 def point_double(a, b, p, x, y):
     """Define "doubling" an EC point.
@@ -125,9 +149,17 @@ def point_double(a, b, p, x, y):
     """  
 
     # ADD YOUR CODE BELOW
-    xr, yr = None, None
-
-    return xr, yr
+    if not is_point_on_curve(a, b, p, x, y):
+        ## Handle edge case of point not being on curve
+        raise Exception("Point must be on curve")
+    elif x is None and y is None:
+        ## Adding infinity point to itself results in infinity
+        return x, y
+    else:
+        lam = (((3 * pow(x, 2)) + a) * ((2 * y).mod_inverse(p))) % p
+        xr = ((pow(lam, 2) - 2 * x)) % p
+        yr = ((lam * (x - xr)) - y) % p
+        return xr, yr
 
 def point_scalar_multiplication_double_and_add(a, b, p, x, y, scalar):
     """
@@ -143,13 +175,21 @@ def point_scalar_multiplication_double_and_add(a, b, p, x, y, scalar):
         return Q
 
     """
-    Q = (None, None)
-    P = (x, y)
 
-    for i in range(scalar.num_bits()):
-        pass ## ADD YOUR CODE HERE
+    if not is_point_on_curve(a, b, p, x, y):
+        raise Exception("Point must be on curve")
+    elif x is None and y is None:
+        return (None, None)
+    else:
+        Q = (None, None)
+        P = (x, y)
+        convert_to_binary_string = str(bin(scalar))[::-1]
 
-    return Q
+        for i in range(scalar.num_bits()):
+            if convert_to_binary_string[i] == "1":
+                Q = point_add(a, b, p, Q[0], Q[1], P[0], P[1])
+            P = point_double(a, b, p, P[0], P[1])
+        return Q
 
 def point_scalar_multiplication_montgomerry_ladder(a, b, p, x, y, scalar):
     """
@@ -169,13 +209,22 @@ def point_scalar_multiplication_montgomerry_ladder(a, b, p, x, y, scalar):
         return R0
 
     """
-    R0 = (None, None)
-    R1 = (x, y)
-
-    for i in reversed(range(0,scalar.num_bits())):
-        pass ## ADD YOUR CODE HERE
-
-    return R0
+    if not is_point_on_curve(a, b, p, x, y):
+        raise Exception("Point must be on curve")
+    elif x is None and y is None:
+        return (None, None)
+    else:
+        R0 = (None, None)
+        R1 = (x, y)
+        convert_to_binary_string = str(bin(scalar))[::-1]
+        for i in reversed(range(0,scalar.num_bits())):
+            if convert_to_binary_string[i] == "0":
+                R1 = point_add(a, b, p, R0[0], R0[1], R1[0], R1[1])
+                R0 = point_double(a, b, p, R0[0], R0[1])
+            else:
+                R0 = point_add(a, b, p, R0[0], R0[1], R1[0], R1[1])
+                R1 = point_double(a, b, p, R1[0], R1[1])
+        return R0
 
 
 #####################################################
@@ -204,7 +253,8 @@ def ecdsa_sign(G, priv_sign, message):
     plaintext =  message.encode("utf8")
 
     ## YOUR CODE HERE
-
+    digest = sha256(plaintext).digest()
+    sig = do_ecdsa_sign(G, priv_sign, digest)
     return sig
 
 def ecdsa_verify(G, pub_verify, message, sig):
@@ -212,7 +262,8 @@ def ecdsa_verify(G, pub_verify, message, sig):
     plaintext =  message.encode("utf8")
 
     ## YOUR CODE HERE
-
+    digest = sha256(plaintext).digest()
+    res = do_ecdsa_verify(G, pub_verify, sig, digest)
     return res
 
 #####################################################
