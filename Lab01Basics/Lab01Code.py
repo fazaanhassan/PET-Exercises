@@ -290,17 +290,27 @@ def dh_encrypt(pub, message, aliceSig = None):
         - Use the shared key to AES_GCM encrypt the message.
         - Optionally: sign the message with Alice's key.
     """
-    
-    ## YOUR CODE HERE
-    pass
+    G,  priv_a, pub_a = dh_get_key()
+
+    shared_key = sha256((priv_a * pub).export()).digest()[:16] #(pub)^priv_a mod p
+    iv, ciphertext, tag = encrypt_message(shared_key, message)
+
+    cipher_elements = (iv, ciphertext, tag, pub_a)
+
+    return cipher_elements
+
 
 def dh_decrypt(priv, ciphertext, aliceVer = None):
     """ Decrypt a received message encrypted using your public key, 
     of which the private key is provided. Optionally verify 
     the message came from Alice using her verification key."""
     
-    ## YOUR CODE HERE
-    pass
+    ## to decrypt we require iv, ciphertext, tag which can be passed into ciphpertext
+    iv, ciphertext, tag, pub_a = ciphertext[0], ciphertext[1], ciphertext[2], ciphertext[3]
+    shared_key = sha256((priv * pub_a).export()).digest()[:16] #(pub)^priv_a mod p
+    decrypted_message = decrypt_message(shared_key, iv, ciphertext, tag)
+
+    return decrypted_message
 
 ## NOTE: populate those (or more) tests
 #  ensure they run using the "py.test filename" command.
@@ -308,14 +318,57 @@ def dh_decrypt(priv, ciphertext, aliceVer = None):
 #  $ py.test-2.7 --cov-report html --cov Lab01Code Lab01Code.py 
 
 def test_encrypt():
-    assert False
+
+    message_to_encrypt = "Hello World"
+    G, priv_a, pub_b = dh_get_key()
+
+    my_cipher_elements = dh_encrypt(pub_b, message_to_encrypt)
+
+    assert len(my_cipher_elements[0]) == 16
+    assert len(my_cipher_elements[1]) == len(message_to_encrypt)
+   
 
 def test_decrypt():
-    assert False
 
+    message_to_encrypt = "Hello World"
+    G, priv_b, pub_b = dh_get_key()
+    my_cipher_elements = dh_encrypt(pub_b, message_to_encrypt)
+
+    decrypted_message = dh_decrypt(priv_b, my_cipher_elements)
+    
+    assert decrypted_message == "Hello World"
+    assert len(decrypted_message) == len(message_to_encrypt)
+    
+
+from pytest import raises
 def test_fails():
-    assert False
 
+    message_to_encrypt = "Can we make these tests fail? of course we can"
+
+    G, priv_b, pub_b = dh_get_key()
+
+    #  returns (iv, ciphertext, tag, pub_a)
+    my_cipher_elements = dh_encrypt(pub_b, message_to_encrypt)
+    my_cipher_elements_mutable = [my_cipher_elements[0], my_cipher_elements[1], my_cipher_elements[2], my_cipher_elements[3]]
+    
+    # Now we test how the decryption can fail based on different inputs
+
+    # bad Key
+    with raises(Exception) as exception_info:
+        dh_decrypt(11223344, my_cipher_elements_mutable)
+    assert "Cipher: decryption failed" in str(exception_info.value)
+
+    # Bad iv
+    my_cipher_elements_mutable[0] = my_cipher_elements_mutable[0] + str(1)
+    with raises(Exception) as exception_info:
+        dh_decrypt(priv_b, my_cipher_elements_mutable)
+    assert "Cipher: decryption failed" in str(exception_info.value)
+
+    # Wrong public key from Alice
+    my_cipher_elements_mutable[3] = my_cipher_elements_mutable[3].pt_mul(100)
+    with raises(Exception) as exception_info:
+        dh_decrypt(priv_b, my_cipher_elements_mutable)
+    assert "Cipher: decryption failed" in str(exception_info.value)
 #####################################################
 # TASK 6 -- Time EC scalar multiplication
 #             Open Task.
